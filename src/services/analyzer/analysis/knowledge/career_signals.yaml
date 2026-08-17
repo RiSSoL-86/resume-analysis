@@ -1,0 +1,21 @@
+version: 2.0.0
+domain: career
+rules:
+  - id: career.job.acceptable_duration
+    condition: duration_months >= 12
+    signal: neutral
+    principle: Около года и больше обычно приемлемо для IT-кандидата.
+  - id: career.job.short
+    condition: duration_months < 12
+    signal: attention
+    principle: Место короче года требует причины перехода, но не означает автоматический отказ.
+  - id: career.gap.short
+    condition: gap_months < 3
+    signal: neutral
+    principle: Короткий разрыв фиксируется, но обычно не требует сильного вывода.
+  - id: career.gap.medium
+    condition: 3 <= gap_months < 12
+    signal: attention
+    principle: Необъяснённый перерыв зафиксируй как неизвестное, сформируй вопрос и отрази причину в комментарии.
+  - id: career.transition.reason_each_job
+    principle: Причина ухода нужна по каждому завершенному месту; отсутствие причины является неизвестным и порождает вопрос.

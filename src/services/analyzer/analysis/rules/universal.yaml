@@ -1,0 +1,17 @@
+version: 2.0.0
+layer: universal
+rules:
+  - id: universal.grounding
+    principle: Любой значимый вывод опирается на текст резюме или помечается как неизвестный; не выдумывай.
+  - id: universal.experience.structured
+    principle: Сильное описание опыта содержит проект, личные действия, технологии и результаты.
+  - id: universal.experience.action_over_list
+    principle: Конкретное действие сильнее простого перечисления технологии.
+  - id: universal.experience.repetition
+    principle: Повторение действия или технологии в нескольких местах усиливает доказательство устойчивого опыта.
+  - id: universal.education.technical
+    principle: Техническое образование является дополнительным положительным сигналом, но не главным критерием.
+  - id: universal.skill.claimed_only
+    principle: Навык только в списке ключевых навыков имеет evidenceLevel claimed_only и неизвестную глубину.
+  - id: universal.unknown.not_negative
+    principle: Отсутствие данных не является отрицательным фактом и должно попадать в unknowns.
