@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if pending %}<meta http-equiv="refresh" content="5">{% endif %}
+  <title>Разбор резюме</title>
+  <style>
+:root{
+  --ink:#1a201d;--muted:#6b746e;--paper:#eef0ec;--card:#ffffff;--line:#dcded9;
+  --accent:#e05234;--shadow:0 8px 24px rgba(26,32,29,.07);
+}
+.status-positive{--signal:#1f9d57;--soft:#e2f3ea;--deep:#0f6a3a}
+.status-attention{--signal:#e0930f;--soft:#fbedcd;--deep:#976008}
+.status-negative{--signal:#d43f30;--soft:#f9e1dd;--deep:#9a281f}
+.status-neutral{--signal:#7c847e;--soft:#eaece9;--deep:#525853}
+.status-unknown{--signal:#a2a8a2;--soft:#eef0ed;--deep:#6c726d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:14px/1.4 Arial,"Helvetica Neue",Helvetica,sans-serif}
+h1,h2,h3,h4{margin:0}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:6px max(18px,calc((100vw - 1340px)/2));border-bottom:1px solid var(--line);
+  background:rgba(238,240,236,.94);position:sticky;top:0;z-index:20}
+.brand{font-weight:900;letter-spacing:.08em;font-size:13px}
+.brand span{margin-left:8px;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.legend{display:flex;align-items:center;gap:13px;font-size:11px;color:var(--muted)}
+.legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+.legend i{width:10px;height:10px;border-radius:50%}
+.legend .g{background:#1f9d57}.legend .y{background:#e0930f}.legend .r{background:#d43f30}
+
+.shell{max-width:1560px;margin:auto;padding:11px 20px 16px;display:flex;flex-direction:column;gap:7px}
+
+/* COCKPIT: avatar + identity + overall-score bar */
+.cockpit{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;
+  padding:11px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.avatar{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;
+  justify-content:center;font-size:21px;font-weight:900;letter-spacing:.02em;
+  background:var(--soft);color:var(--deep);border:2px solid var(--signal)}
+.id-block{display:flex;flex-direction:column;justify-content:center;min-width:0}
+.id-block h1{margin:0 0 2px;font-size:clamp(20px,2.2vw,26px);font-weight:800;letter-spacing:-.02em;line-height:1.02}
+.id-block .role{color:#43504a;font-size:13px}
+.id-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;
+  border:1px solid var(--line);border-radius:99px;background:var(--paper)}
+.tag em{font-style:normal;font-size:13px;line-height:1}
+.tag span{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.tag b{font-size:13px;font-weight:800;color:var(--ink)}
+.tag.status-positive,.tag.status-attention,.tag.status-negative{border-color:var(--signal);background:var(--soft)}
+.tag.status-positive b,.tag.status-attention b,.tag.status-negative b{color:var(--deep)}
+/* OVERALL SCORE — horizontal bar block */
+.gauge{display:flex;flex-direction:column;gap:9px;align-self:center;min-width:250px}
+.gauge .g-top{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.gauge .cap{font-size:12px;font-weight:700;line-height:1.3;color:var(--muted);max-width:160px}
+.gauge .g-num{font-size:36px;font-weight:900;color:var(--deep);letter-spacing:-.02em;line-height:1}
+.gauge .g-num i{font-size:.46em;font-style:normal;font-weight:900}
+.gauge .g-bar{height:15px;border-radius:99px;background:#e1e5df;overflow:hidden}
+.gauge .g-bar span{display:block;height:100%;border-radius:99px;background:var(--signal)}
+
+/* GLANCE TILES */
+.words{display:grid;grid-template-columns:1fr 2.2fr 1fr;gap:7px}
+.word{display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:14px;
+  background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
+.word .wic{width:40px;height:40px;border-radius:12px;flex:none;font-size:19px;
+  display:flex;align-items:center;justify-content:center;background:var(--soft);color:var(--deep)}
+/* пауза «Перерывы» — синий значок на голубом фоне (единый с карточкой перерыва) */
+.word .wic-pause{background:#e8eefb;color:#2f6fd6}
+.pause-ic{width:22px;height:22px;display:block}
+.word .wtxt{min-width:0}
+.word .wtxt span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.word .wtxt strong{display:block;margin-top:2px;font-size:17px;font-weight:800;line-height:1.12;color:var(--ink)}
+.word .wtxt strong i{font-style:normal;font-weight:800;color:var(--deep,var(--ink))}
+.word .wtxt strong s{text-decoration:none;color:var(--line);font-weight:700;margin:0 3px}
+
+/* PAGE SPLIT: 01 Путь занимает 2/3 слева, 02+03 — узкая колонка 1/3 справа */
+.main-split{display:grid;grid-template-columns:2fr 1fr;gap:7px;align-items:start}
+.rail{display:flex;flex-direction:column;gap:7px}
+.rail .block{height:auto}
+
+/* BLOCKS */
+.block{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:11px 13px;box-shadow:var(--shadow)}
+.block-head{display:flex;align-items:baseline;gap:9px;margin-bottom:8px}
+.block-head b{color:var(--accent);font-size:11px;font-weight:900;letter-spacing:.06em}
+.block-head h2{font-size:17px;font-weight:800}
+.block-head p{margin:0;color:var(--muted);font-size:11px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* SKILL BLOCK: takeaways + skill chips */
+.skills-split{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.takeaways{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.takeaways li{position:relative;padding:8px 12px 8px 30px;border-radius:11px;
+  background:var(--soft);border:1px solid var(--line);border-left:5px solid var(--signal,#c7ccc6);
+  font-size:13px;font-weight:700;line-height:1.25;color:var(--deep,var(--ink))}
+.takeaways li::before{content:"";position:absolute;left:13px;top:50%;margin-top:-4px;
+  width:8px;height:8px;border-radius:50%;background:var(--signal,#c7ccc6)}
+.dots{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start}
+.dots span{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:99px;
+  background:var(--soft);border:1px solid var(--signal);font-size:12px;font-weight:700;color:var(--deep)}
+.dots span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--signal)}
+
+/* LIFE TIMELINE — a vertical, compressed-past year axis. Today sits at the top;
+   the deeper into the past, the tighter the years pack. Work (the priority) rides
+   the wide LEFT column; education, courses and career breaks sit on the narrow
+   right. Every card carries a true-span bracket on the axis, so a card nudged for
+   legibility still points back at its real dates ("сноска на шкалу"). */
+.lt{margin-top:30px}
+.lt-stage{position:relative;display:grid;
+  grid-template-columns:1.48fr var(--axis,72px) 0.92fr;column-gap:0}
+.lt-col{position:relative}
+.lt-head{position:absolute;top:-24px;left:0;right:0;text-align:center;
+  font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+/* the axis: a vertical rule with year ticks + true-span brackets */
+.lt-axis{position:relative}
+.lt-line{position:absolute;top:0;height:100%;left:50%;width:2px;transform:translateX(-50%);
+  background:linear-gradient(#c7ccc6,#dcded9)}
+.lt-tick{position:absolute;left:50%;transform:translate(-50%,-50%);white-space:nowrap;
+  padding:1px 7px;border-radius:99px;background:var(--paper);border:1px solid var(--line);
+  font-size:10px;font-weight:800;color:var(--muted);letter-spacing:.02em;z-index:2}
+.lt-tick.is-now{color:#fff;background:#1f9d57;border-color:#1f9d57;font-weight:900}
+/* cards — height IS the tenure, so the box length reads as "how long".
+   Всё выравниваем от ЛЕВОГО края карточки: бейдж слева, текст слева. */
+.lt-card{position:absolute;left:0;right:0;box-sizing:border-box;padding:2px 10px;
+  border-radius:12px;display:flex;gap:8px;align-items:center;overflow:hidden;
+  background:var(--card);border:1.5px solid var(--signal);z-index:2;text-align:left}
+/* ОПЫТ РАБОТЫ — приоритет: слева, заметный, с тенью; текст компактный */
+.lt-side-l .lt-card{margin-left:11px;background:var(--soft);color:var(--deep);
+  box-shadow:0 7px 18px -11px rgba(26,32,29,.7)}
+/* УЧЁБА · ПЕРЕРЫВЫ — справа от оси, компактнее и спокойнее */
+.lt-side-r .lt-card{margin-right:11px;color:var(--deep);padding:2px 9px;gap:7px}
+/* учёба — фиолетовая категория, чтобы её ни с чем не спутать */
+.lt-study{--signal:#7a45c0;--soft:#efe7fb;--deep:#57268f;
+  background:var(--soft);border-color:var(--signal);color:var(--deep)}
+/* leader stubs tying each card's top (end) & bottom (start) edge to the axis */
+.lt-card::before,.lt-card::after{content:"";position:absolute;height:2px;
+  width:calc(var(--axis,72px)/2 + 1px);background:var(--signal);opacity:.5}
+.lt-card::before{top:-1px}.lt-card::after{bottom:-1px}
+.lt-side-l .lt-card::before,.lt-side-l .lt-card::after{left:100%}
+.lt-side-r .lt-card::before,.lt-side-r .lt-card::after{right:100%}
+.lt-logo{position:relative;width:26px;height:26px;border-radius:8px;flex:none;
+  font-size:12px;font-weight:900;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;background:var(--card);
+  color:var(--deep);border:1.5px solid var(--signal)}
+/* фирменный бейдж заполняет всю плитку (обрезается её скруглением) */
+.lt-logo.has-logo{border:0;background:none;padding:0}
+.lt-logo .brand{position:absolute;inset:0;width:100%;height:100%}
+.lt-logo>svg:not(.brand){width:60%;height:60%}
+.lt-side-r .lt-logo{width:26px;height:26px;border-radius:8px}
+.lt-cap{--signal:#7a45c0;--deep:#57268f;background:#efe7fb;color:#57268f;border-color:#d9c7f2}
+/* пауза перерыва — тот же синий значок, что и в шапке (единый вид) */
+.lt-pause{background:#e8eefb;color:#2f6fd6;border-color:#c3d3f2}
+.lt-txt{min-width:0;flex:1}
+.lt-txt b{display:block;font-size:11px;font-weight:800;line-height:1.16;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* учёба справа — мельче; названиям вузов можно переноситься на несколько строк */
+.lt-side-r .lt-txt b{font-size:11px;font-weight:800;white-space:normal;overflow:visible}
+.lt-txt .role{font-size:9.5px;font-weight:600;line-height:1.2;margin-top:1px;opacity:.8;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-txt .pos{font-size:9.5px;font-weight:800;line-height:1.2;margin-top:1px;color:var(--deep);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* краткая длительность в скобках — жирная, но строчными (не наследует
+   ЗАГЛАВНЫЕ от строки должности) */
+.lt-txt .dur{font-weight:800;opacity:.8;font-size:.9em;text-transform:none}
+/* опыт работы — название компании и должность заглавными и жирными, чтобы
+   мелкий текст читался явнее */
+.lt-side-l .lt-txt b{font-weight:900;text-transform:uppercase;letter-spacing:.01em}
+.lt-side-l .lt-txt .pos{font-weight:800;text-transform:uppercase}
+/* тип компании (банк/финтех) — плашка справа НА УРОВНЕ строки должности
+   (сдвинута на строку ниже центра карточки); верхний правый угол оставлен
+   под кружок «i» (обязанности), который при сжатии сам уходит к центру */
+.lt-side-l .sector{flex:none;align-self:center;position:relative;top:7px;
+  white-space:nowrap;padding:2px 8px;border-radius:99px;font-size:8.5px;
+  font-weight:800;letter-spacing:.03em;text-transform:uppercase;
+  background:var(--card);color:var(--deep);border:1px solid var(--signal);opacity:.92}
+/* курсы — самый мелкий текст: меньше, чем у образования и опыта */
+.lt-course .lt-txt b{font-size:11px}
+.lt-course .lt-txt .role{font-size:9.5px}
+.lt-course .lt-logo{width:26px;height:26px}
+/* галочка «текущее место работы» — маленький зелёный кружок у названия */
+.lt-card .now{display:inline-flex;vertical-align:middle;margin-left:4px;
+  width:12px;height:12px;border-radius:50%;background:#1f9d57;color:#fff;
+  font-size:7.5px;font-weight:900;align-items:center;justify-content:center}
+/* перерыв в карьере — сплошной мягкий красный, без штриховки */
+.lt-gap{background:var(--soft)}
+.lt-gap .lt-txt b{font-size:11px;font-weight:900;color:var(--deep)}
+
+/* кликабельная карточка опыта → всплывающее окно с обязанностями */
+.lt-card.has-detail{cursor:pointer}
+.lt-card.has-detail:hover{box-shadow:0 10px 22px -10px rgba(26,32,29,.85)}
+.lt-hit{position:absolute;inset:0;width:100%;height:100%;padding:0;margin:0;
+  border:0;background:transparent;cursor:pointer;z-index:4}
+.lt-hit-ic{position:absolute;top:4px;right:7px;width:13px;height:13px;
+  border-radius:50%;background:var(--signal);color:#fff;font:italic 700 9px/13px Georgia,serif;
+  text-align:center;opacity:.85}
+.lt-card.has-detail:hover .lt-hit-ic{opacity:1}
+.lt-pop{margin:auto;max-width:430px;width:calc(100% - 32px);max-height:70vh;overflow:auto;
+  padding:0;border:1px solid var(--line);border-radius:14px;background:var(--card);
+  color:var(--ink);box-shadow:0 24px 60px -20px rgba(26,32,29,.5)}
+.lt-pop::backdrop{background:rgba(26,32,29,.34)}
+.lt-pop-head{position:sticky;top:0;display:flex;align-items:baseline;gap:8px;
+  padding:14px 16px 11px;background:var(--card);border-bottom:1px solid var(--line)}
+.lt-pop-head b{font-size:15px;font-weight:800}
+.lt-pop-head span{flex:1;min-width:0;font-size:11.5px;color:var(--muted)}
+.lt-pop-x{flex:none;width:24px;height:24px;border:0;border-radius:8px;cursor:pointer;
+  background:var(--paper);color:var(--muted);font-size:12px;line-height:1}
+.lt-pop-x:hover{background:var(--line);color:var(--ink)}
+.lt-pop-list{margin:0;padding:12px 18px 16px;list-style:none;display:flex;
+  flex-direction:column;gap:7px;font-size:12.5px;line-height:1.42;color:#333}
+.lt-pop-list li{position:relative;padding-left:15px}
+.lt-pop-list li::before{content:"";position:absolute;left:2px;top:7px;width:5px;height:5px;
+  border-radius:50%;background:var(--accent)}
+.lt-pop-list li.h{padding-left:0;margin-top:5px;font-weight:800;color:var(--ink)}
+.lt-pop-list li.h:first-child{margin-top:0}
+.lt-pop-list li.h::before{display:none}
+
+/* risks + questions */
+.risk-list{display:flex;flex-direction:column;gap:7px}
+.risk{display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:12px;
+  background:var(--soft);border:1px solid var(--line);border-left:5px solid var(--signal)}
+.risk .ric{width:30px;height:30px;border-radius:9px;flex:none;font-size:15px;
+  display:flex;align-items:center;justify-content:center;background:var(--card);color:var(--deep)}
+.risk .rtx{min-width:0;flex:1}
+.risk b{display:block;font-size:12.5px;font-weight:800;color:var(--deep)}
+.risk span{font-size:11px;color:#4a544e}
+.risk .chev{margin-left:auto;color:var(--signal);font-weight:900;font-size:15px;flex:none}
+
+/* collapsible drawer for risks + questions */
+.drawer{margin:0}
+.drawer-toggle{list-style:none;cursor:pointer;user-select:none;display:flex;align-items:center;
+  justify-content:center;gap:10px;padding:11px 16px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;box-shadow:var(--shadow);font-size:13px;font-weight:800;color:var(--ink)}
+.drawer-toggle::-webkit-details-marker{display:none}
+.drawer-toggle .hint{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;
+  display:inline-flex;align-items:center}
+/* аккуратный треугольник на бордерах: вниз (раскрыть) → вверх (свернуть) */
+.drawer-toggle .hint::after{content:"";width:0;height:0;margin-left:3px;
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:6px solid currentColor}
+.drawer[open] .drawer-toggle .hint::after{border-top:0;border-bottom:6px solid currentColor}
+.drawer[open] .drawer-toggle{border-radius:14px 14px 0 0}
+.drawer-body{margin-top:10px}
+
+.empty{padding:14px;border:1px dashed var(--line);border-radius:11px;color:var(--muted);background:var(--card);font-size:12px}
+
+@media(max-width:900px){
+  .main-split{grid-template-columns:1fr}
+  .cockpit{grid-template-columns:auto 1fr}
+  .gauge{grid-column:1 / -1;justify-content:flex-start}
+  .words{grid-template-columns:1fr}
+  .grid-2{grid-template-columns:1fr}
+  .skills-split{grid-template-columns:1fr}
+  .legend{display:none}
+}
+@media print{.topbar{position:static}body{background:#fff}.block,.cockpit{box-shadow:none;break-inside:avoid}
+  details:not([open])>.drawer-body{display:block}.drawer-toggle .hint{display:none}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">HUMART <span>resume intelligence</span></span>
+    <div class="legend">
+      <b><i class="g"></i>подходит</b>
+      <b><i class="y"></i>проверить</b>
+      <b><i class="r"></i>риск</b>
+    </div>
+  </header>
+
+  {% if d %}
+  <main class="shell">
+
+    <!-- COCKPIT -->
+    <section class="cockpit">
+      <div class="avatar status-{{ d.hero.overall_status }}">{{ d.hero.initials }}</div>
+      <div class="id-block">
+        <h1>{{ d.hero.full_name|default:d.candidate.full_name|default:"Кандидат" }}</h1>
+        <div class="role">{{ d.hero.headline|default:d.candidate.current_title|default:"Должность не указана" }}</div>
+        <div class="id-tags">
+          <div class="tag"><em>🎂</em><span>Возраст</span><b>{{ d.hero.age_label }}</b></div>
+          <div class="tag"><em>💰</em><span>Зарплата</span><b>{{ d.hero.salary_label }}</b></div>
+          {% if d.hero.updated_label %}<div class="tag status-{{ d.hero.updated_status }}"><em>🕒</em><span>Обновлено</span><b>{{ d.hero.updated_label }}</b></div>{% endif %}
+        </div>
+      </div>
+      <div class="gauge status-{{ d.hero.overall_status }}">
+        <div class="g-top"><span class="cap">Итог по кандидату — насколько подходит</span><b class="g-num">{{ d.hero.overall_score }}<i>%</i></b></div>
+        <div class="g-bar"><span style="width:{{ d.hero.overall_score }}%"></span></div>
+      </div>
+    </section>
+
+    <!-- ЁМКИЕ СЛОВА -->
+    <section class="words">
+      <div class="word"><span class="wic">👤</span><div class="wtxt"><span>Профиль</span><strong>{{ d.hero.main_profile|default:"—" }}</strong></div></div>
+      <div class="word"><span class="wic">📊</span><div class="wtxt"><span>Уровень / Опыт / {{ d.domain.label }}</span><strong><i class="status-{{ d.hero.level_status }}">{{ d.hero.level|default:"—" }}</i><s>/</s><i class="status-{{ d.hero.experience_status }}">{{ d.timeline_total_label|default:"—" }}</i><s>/</s><i class="status-{{ d.domain.status }}">{{ d.domain.value }}</i></strong></div></div>
+      <div class="word status-{{ d.gaps_status }}"><span class="wic wic-pause status-{{ d.gaps_status }}"><svg class="pause-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.3"/><rect x="14" y="5" width="4" height="14" rx="1.3"/></svg></span><div class="wtxt"><span>Перерывы</span><strong><i>{{ d.gaps_label }}</i></strong></div></div>
+    </section>
+
+    <!-- 01 ПУТЬ (2/3) · 02 ГЛАВНОЕ + 03 НАВЫКИ (1/3) -->
+    <div class="main-split">
+      <section class="block">
+        <div class="block-head"><b>01</b><h2>Путь: учёба и опыт</h2></div>
+        {% if d.lifeline_work or d.lifeline_study %}
+        <div class="lt">
+          <div class="lt-stage" style="height:{{ d.lifeline_height }}px">
+
+            <!-- LEFT: опыт работы — приоритет -->
+            <div class="lt-col lt-side-l lt-work">
+              <div class="lt-head">Опыт работы</div>
+              {% for b in d.lifeline_work %}<div class="lt-card status-{{ b.status }}{% if b.details %} has-detail{% endif %}" style="top:{{ b.top }}px;height:{{ b.height }}px" title="{{ b.title }} · {{ b.role }} · {{ b.subtitle }} · {{ b.period }}">
+                <div class="lt-logo status-{{ b.status }}{% if b.logo_svg %} has-logo{% endif %}">{% if b.logo_svg %}{{ b.logo_svg|safe }}{% else %}<b class="ini">{{ b.logo }}</b>{% endif %}</div>
+                <div class="lt-txt"><b>{{ b.title }}{% if b.current %} <span class="now" title="Текущее место работы">✓</span>{% endif %}</b><div class="pos">{{ b.role|default:"Должность не указана" }}{% if b.duration %} <span class="dur">({{ b.duration }})</span>{% endif %}</div></div>
+                {% if b.subtitle %}<div class="sector">{{ b.subtitle }}</div>{% endif %}
+                {% if b.details %}<button type="button" class="lt-hit" popovertarget="ltp{{ forloop.counter }}" aria-label="Показать обязанности: {{ b.title }}"><span class="lt-hit-ic">i</span></button>{% endif %}
+              </div>{% if b.details %}<div id="ltp{{ forloop.counter }}" popover class="lt-pop">
+                <div class="lt-pop-head"><b>{{ b.title }}</b><span>{{ b.role|default:"" }}{% if b.period %} · {{ b.period }}{% endif %}</span><button type="button" class="lt-pop-x" popovertarget="ltp{{ forloop.counter }}" popovertargetaction="hide" aria-label="Закрыть">✕</button></div>
+                <ul class="lt-pop-list">{% for dt in b.details %}<li class="{% if dt.head %}h{% endif %}">{{ dt.text }}</li>{% endfor %}</ul>
+              </div>{% endif %}{% endfor %}
+            </div>
+
+            <!-- CENTER: вертикальная нелинейная ось лет -->
+            <div class="lt-col lt-axis">
+              {% with last_year=d.lifeline_years|last %}<div class="lt-line" style="height:{{ last_year.position }}px"></div>{% endwith %}
+              {% for y in d.lifeline_years %}<span class="lt-tick{% if y.current %} is-now{% endif %}" style="top:{{ y.position }}px">{% if y.current %}сейчас{% else %}{{ y.label }}{% endif %}</span>{% endfor %}
+            </div>
+
+            <!-- RIGHT: образование, курсы, перерывы -->
+            <div class="lt-col lt-side-r">
+              <div class="lt-head">Учёба · перерывы</div>
+              {% for b in d.lifeline_study %}<div class="lt-card lt-study{% if b.kind == 'course' %} lt-course{% endif %}" style="top:{{ b.top }}px;height:{{ b.height }}px" title="{{ b.title }} · {{ b.period }}">
+                <div class="lt-logo lt-cap"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z"/></svg></div>
+                <div class="lt-txt"><b>{{ b.title }}</b>{% if b.subtitle %}<div class="role">{{ b.subtitle }}</div>{% endif %}</div>
+              </div>{% endfor %}
+              {% for b in d.lifeline_gaps %}<div class="lt-card lt-gap status-negative" style="top:{{ b.top }}px;height:{{ b.height }}px" title="{{ b.title }} · {{ b.subtitle }}">
+                <div class="lt-logo lt-pause"><svg class="pause-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.3"/><rect x="14" y="5" width="4" height="14" rx="1.3"/></svg></div>
+                <div class="lt-txt"><b>Перерыв в карьере{% if b.subtitle %} <span class="dur">({{ b.subtitle }})</span>{% endif %}</b></div>
+              </div>{% endfor %}
+            </div>
+
+          </div>
+        </div>
+        {% else %}<div class="empty">Недостаточно данных для хронологии.</div>{% endif %}
+      </section>
+
+      <div class="rail">
+        <!-- 02 ГЛАВНОЕ О КАНДИДАТЕ -->
+        <section class="block">
+          <div class="block-head"><b>02</b><h2>Главное о кандидате</h2></div>
+          {% if d.highlights %}<ul class="takeaways">{% for h in d.highlights %}<li class="status-{{ h.status }}">{{ h.text }}</li>{% endfor %}</ul>{% else %}<div class="empty">Нет выводов.</div>{% endif %}
+        </section>
+
+        <!-- 03 НАВЫКИ -->
+        <section class="block">
+          <div class="block-head"><b>03</b><h2>Навыки</h2></div>
+          <div class="dots skills-list">{% for skill in d.featured_skills %}{% if skill.score %}<span class="status-{{ skill.status }}" title="{{ skill.group }}">{{ skill.name }}</span>{% endif %}{% endfor %}{% for skill in d.other_skills %}<span class="status-{{ skill.status }}" title="{{ skill.group }}">{{ skill.name }}</span>{% endfor %}</div>
+        </section>
+      </div>
+    </div>
+
+    <!-- РИСКИ + ВОПРОСЫ (сворачиваемый блок) -->
+    <details class="drawer">
+      <summary class="drawer-toggle">Показать дополнительные данные<em class="hint"></em></summary>
+      <section class="grid-2 drawer-body">
+        <div class="block">
+          <div class="block-head"><b>04</b><h2>Риски и что проверить</h2></div>
+          <div class="risk-list">
+            {% for item in d.risks %}<div class="risk status-{{ item.status }}"><span class="ric">⚠️</span><div class="rtx"><b>{{ item.title }}</b><span>{{ item.explanation }}</span></div><span class="chev">›</span></div>{% endfor %}
+            {% for item in d.unknowns %}<div class="risk status-unknown"><span class="ric">❔</span><div class="rtx"><b>Нет данных: {{ item.subject }}</b><span>{{ item.reason }}</span></div><span class="chev">›</span></div>{% endfor %}
+            {% if not d.risks and not d.unknowns %}<div class="empty">Существенных рисков не выявлено.</div>{% endif %}
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-head"><b>05</b><h2>Что спросить</h2></div>
+          <div class="risk-list">{% for item in d.questions %}<div class="risk status-{{ item.status }}"><span class="ric">❓</span><div class="rtx"><b>{{ item.question }}</b><span>{{ item.reason }}</span></div><span class="chev">›</span></div>{% empty %}<div class="empty">Вопросов нет.</div>{% endfor %}</div>
+        </div>
+      </section>
+    </details>
+
+  </main>
+  {% else %}
+  <main class="shell">
+    <section class="empty">
+      <h1>{{ notice_title }}</h1>
+      <p>{{ notice_message }}</p>
+    </section>
+  </main>
+  {% endif %}
+</body>
+</html>

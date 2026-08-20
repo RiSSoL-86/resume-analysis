@@ -1,0 +1,76 @@
+version: 2.0.0
+scope: hr_expert_knowledge
+source: Процесс ресёрча ИТ-специалистов — теоретическая часть от Кирилла Е.
+
+# Один сигнал `signal`: насколько среда компании обычно растит сильного
+# аналитика. Значения: strong_positive|positive|neutral|attention|negative
+# |unknown (маппинг в signal_mapping ниже).
+
+application_rules:
+  - id: company.signal.minimum_duration
+    principle: Сильный вывод о компании-драйвере применяется при работе дольше 12 месяцев; меньший срок ослабляет сигнал.
+  - id: company.signal.tasks_override
+    principle: Компания дает априорный сигнал, но конкретные задачи могут подтвердить, усилить, ослабить или опровергнуть его.
+  - id: company.signal.no_unlisted_guess
+    principle: Если компании или надежно определимого типа нет в базе знаний, сигнал unknown, а не догадка модели.
+
+explicit_companies:
+  - canonical_name: Самокат
+    aliases: [Samokat]
+    signal: strong_positive
+    rationale: Компания-драйвер; выходят сильные специалисты.
+  - canonical_name: X5
+    aliases: [X5 Group, X5 Tech, X5 Digital]
+    signal: strong_positive
+    rationale: Среди сильнейших компаний-драйверов.
+  - canonical_name: Тинькофф
+    aliases: [Tinkoff, Т-Банк, T-Bank]
+    signal: strong_positive
+    rationale: Среди сильнейших компаний-драйверов.
+  - canonical_name: Сбертех
+    aliases: [SberTech, СберТех]
+    signal: positive
+    rationale: Неплохо прокачивает аналитиков.
+  - canonical_name: РЖД
+    aliases: [Российские железные дороги, Russian Railways]
+    signal: attention
+    rationale: Качество профессионального развития под вопросом без сильных задач.
+  - canonical_name: Яндекс
+    aliases: [Yandex]
+    signal: positive
+    rationale: Крупный IT-плюс.
+
+company_categories:
+  - id: top5_bank
+    signal: positive
+    rationale: Банковский сектор — сильный релевантный маркер.
+  - id: other_bank
+    examples: [БАНК УРАЛСИБ]
+    signal: positive
+    rationale: Банковский опыт релевантен.
+  - id: large_it
+    examples: [Ecom.tech]
+    signal: positive
+    rationale: Крупная IT-компания — положительный маркер.
+  - id: it_consulting
+    examples: [AT Consulting, Инфосистемы Джет]
+    signal: positive
+    rationale: IT-консалтинг — положительный тип.
+  - id: system_integrator
+    examples: [SIGMA IT]
+    signal: positive
+    rationale: Интеграторы — положительный тип.
+  - id: small_company
+    signal: unknown
+    rationale: Из маленьких компаний сильные кандидаты реже; задачи проверяются отдельно.
+  - id: startup
+    signal: attention
+    rationale: Может давать сильный практический опыт, но требует проверки задач.
+
+signal_mapping:
+  strong_positive: positive
+  positive: positive
+  neutral: neutral
+  attention: attention
+  negative: negative
+  unknown: unknown
