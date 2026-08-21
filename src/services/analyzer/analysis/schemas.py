@@ -1,62 +1,18 @@
 from typing import Literal, final
 
+from services.analyzer.analysis.choices import (
+    EducationKind,
+    EstimatedDepth,
+    EstimatedLevel,
+    EvidenceLevel,
+    MainProfile,
+    MetadataStatus,
+    RoleRelevance,
+    Sector,
+    Severity,
+    Status,
+)
 from services.api.common.schemas import CamelCaseModel
-
-Status = Literal["positive", "neutral", "attention", "negative", "unknown"]
-Severity = Literal["info", "low", "medium", "high", "critical"]
-EvidenceLevel = Literal[
-    "not_found",
-    "claimed_only",
-    "project_context",
-    "concrete_application",
-    "complex_task",
-    "measurable_result",
-]
-EstimatedLevel = Literal[
-    "intern",
-    "junior",
-    "junior_plus",
-    "middle_minus",
-    "middle",
-    "middle_plus",
-    "senior",
-    "lead",
-    "unknown",
-]
-EstimatedDepth = Literal[
-    "basic", "intermediate", "advanced", "expert", "unknown"
-]
-# Analyst profile keys; rendered to Russian labels in code (PROFILE_LABELS).
-MainProfile = Literal[
-    "system_analyst",
-    "business_analyst",
-    "product_analyst",
-    "data_analyst",
-    "bi_analyst",
-]
-# The company's industry sector, classified by the model from general
-# knowledge of the employer (a factual classification, not a reputation
-# judgement). Which sectors count as a bonus domain is configured in code.
-Sector = Literal[
-    "banking",
-    "fintech",
-    "insurance",
-    "investment",
-    "telecom",
-    "retail",
-    "ecommerce",
-    "it_services",
-    "media",
-    "gamedev",
-    "transport",
-    "manufacturing",
-    "energy",
-    "healthcare",
-    "government",
-    "education",
-    "other",
-    "unknown",
-]
 
 
 @final
@@ -64,7 +20,7 @@ class AnalysisMetadata(CamelCaseModel):
     """Reproducible metadata owned by the application, not the model."""
 
     id: str
-    status: Literal["pending", "processing", "completed", "failed", "partial"]
+    status: MetadataStatus
     created_at: str
     model: str | None
 
@@ -83,12 +39,7 @@ class Candidate(CamelCaseModel):
 
 @final
 class Highlight(CamelCaseModel):
-    """One punchy, standalone takeaway about the candidate.
-
-    Rendered as a colour-coded bullet in the report: ``status`` marks it as a
-    strength, a neutral fact, or something to watch — the same traffic-light
-    language used across the dashboard.
-    """
+    """One standalone, traffic-light-coloured takeaway about the candidate."""
 
     text: str
     status: Status
@@ -102,6 +53,7 @@ class Summary(CamelCaseModel):
     highlights: list[Highlight]
     main_profile: MainProfile
     estimated_level: EstimatedLevel
+    role_fit: int
 
 
 @final
@@ -132,6 +84,7 @@ class ExperienceAssessment(CamelCaseModel):
     end_date: str | None
     duration_months: int | None
     status: Status
+    relevance: RoleRelevance
     responsibilities: str | None = None
 
 
@@ -142,6 +95,7 @@ class SkillAssessment(CamelCaseModel):
     id: str
     name: str
     group: str
+    core: bool
     evidence_level: EvidenceLevel
     estimated_depth: EstimatedDepth
     contexts: list[str]
@@ -153,7 +107,7 @@ class CompanyAssessment(CamelCaseModel):
     """An assessment of one employer as a signal."""
 
     experience_id: str
-    sector: Sector = "unknown"
+    sector: Sector = Sector.UNKNOWN
     signal: Status
 
 
@@ -161,7 +115,7 @@ class CompanyAssessment(CamelCaseModel):
 class EducationItem(CamelCaseModel):
     """A single education record."""
 
-    kind: Literal["degree", "course"] = "degree"
+    kind: EducationKind = EducationKind.DEGREE
     institution: str
     faculty: str | None
     speciality: str | None

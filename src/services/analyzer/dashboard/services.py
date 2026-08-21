@@ -1,23 +1,32 @@
-from __future__ import annotations
-
 import html
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple, final, override
+from typing import TYPE_CHECKING, Final, final, override
 
 from apps.common.services.base import BaseService
+from services.analyzer.analysis.choices import RoleRelevance, Sector, Status
 from services.analyzer.dashboard.constants import (
     COURSE_DEFAULT_MONTHS,
     GAP_ATTENTION_MONTHS,
     LEVEL_LABELS,
     PRIORITY_DOMAIN_LABEL,
     PRIORITY_DOMAIN_SECTORS,
-    PRIORITY_SKILLS,
     PROFILE_LABELS,
+    RELEVANCE_WEIGHTS,
     SECTOR_LABELS,
     SEVERITY_ORDER,
     STUDY_DEFAULT_MONTHS,
 )
+from services.analyzer.dashboard.constants.geometry import (
+    AXIS_MIN_HEIGHT,
+    CARD_GAP,
+    COMPRESS_RELAX,
+    LINEAR_MONTHS,
+    MIN_HEIGHTS,
+    MONTH_STEP,
+    YEAR_LABEL_GAP,
+)
+from services.analyzer.dashboard.constants.logos import COMPANY_LOGOS
 from services.analyzer.dashboard.schemas import (
     Dashboard,
     DashboardDetail,
@@ -31,6 +40,7 @@ from services.analyzer.dashboard.schemas import (
     DashboardSkill,
     DashboardTimelineBlock,
     DashboardTimelineYear,
+    LifeInterval,
 )
 from services.analyzer.dashboard.utils import (
     age_label,
@@ -46,11 +56,8 @@ from services.analyzer.dashboard.utils import (
     overall_score,
     overall_status,
     prune_covered_unknowns,
-    radar_points,
     salary_label,
     severity_status,
-    skill_axes,
-    skill_matches,
     skill_score,
     skill_status,
     tenure_status,
@@ -65,108 +72,16 @@ if TYPE_CHECKING:
         CompanyAssessment,
         ResumeAnalysis,
         SkillAssessment,
-        Status,
     )
-
-
-# Vertical-timeline geometry (pixels). Universal piecewise scale: a card's
-# position depends only on how long ago it was, not the candidate's own span,
-# so every axis shares one ruler and only the DEPTH differs. The last 10 years
-# use a constant step (recent dates read cleanly); older years compress.
-# Hair-thin separation between stacked cards — just enough to avoid overlap.
-_CARD_GAP: Final = 2.0
-# Recent, uncompressed zone: the last 10 years at a fixed step.
-_LINEAR_MONTHS: Final = 120
-# The shortest span we design the scale around (~half a year). A minimum job or
-# break card is icon-sized — the logo tile plus its two lines — and the recent
-# scale is built FROM that floor: a 6-month span fills exactly one min-height
-# card, so it sits on its true dates instead of overshooting them. The step is
-# ~25% tighter than before, now that cards carry course-sized text.
-_MIN_SPAN_MONTHS: Final = 6
-_YEAR_STEP: Final = 62.0
-_MONTH_STEP: Final = _YEAR_STEP / 12.0
-# Compression past the linear zone: saturating curve
-# ``step*relax*t/(t+relax)``, slope-continuous at the seam. Larger = gentler.
-_COMPRESS_RELAX: Final = 55.0
-# Min gap (px) between year ticks before intermediate labels are dropped. Set
-# wide enough that the compressed (older) zone shows only sparse years, while
-# recent years — a full step apart — all survive. The start-of-study year is
-# the oldest tick and is always kept (see ``_timeline_years``).
-_YEAR_LABEL_GAP: Final = 26.0
-# Floor so a very short career still draws a timeline with some body.
-_AXIS_MIN_HEIGHT: Final = 360.0
-# Per-kind card-height floors that keep the shortest stints legible. Jobs and
-# breaks share a 6-month floor (see above): a 3-month break renders the same
-# height as a 6-month one, so the shortest gaps stay readable and uniform.
-_MIN_HEIGHTS: Final = {
-    "job": _MONTH_STEP * _MIN_SPAN_MONTHS,
-    "gap": _MONTH_STEP * _MIN_SPAN_MONTHS,
-    "education": 38.0,
-    "course": 32.0,
-}
-# Built-in brand badges: a keyword in the employer name maps to an inline SVG.
-# First keyword found wins, so put specific brands ("sbertech") first.
-_MONO: Final = (
-    '<svg class="brand" viewBox="0 0 40 40" aria-hidden="true">'
-    '<rect width="40" height="40" fill="{bg}"/>'
-    '<text x="20" y="{y}" text-anchor="middle" font-family="Arial,Helvetica,'
-    'sans-serif" font-size="{fs}" font-weight="900" fill="{fg}">{txt}</text>'
-    "</svg>"
-)
-_SBER_SVG: Final = (
-    '<svg class="brand" viewBox="0 0 40 40" aria-hidden="true">'
-    '<rect width="40" height="40" fill="#21a038"/>'
-    '<path d="M29 13.5a10 10 0 1 0 2.6 6" fill="none" stroke="#fff" '
-    'stroke-width="3.4" stroke-linecap="round"/>'
-    '<path d="M14.5 20l4.2 4 8.3-9" fill="none" stroke="#fff" '
-    'stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-)
-_COMPANY_LOGOS: Final = {
-    "sbertech": _SBER_SVG,
-    "сбер": _SBER_SVG,
-    "sber": _SBER_SVG,
-    "ecom": _MONO.format(bg="#1b1c22", fg="#fff", txt="e.", fs=19, y=27),
-    "джет": _MONO.format(bg="#2b3a8c", fg="#fff", txt="jet", fs=15, y=26),
-    "тинькоф": _MONO.format(bg="#ffdd2d", fg="#1a1a1a", txt="Т", fs=21, y=28),
-    "tinkoff": _MONO.format(bg="#ffdd2d", fg="#1a1a1a", txt="Т", fs=21, y=28),
-    "альфа": _MONO.format(bg="#ef3124", fg="#fff", txt="А", fs=21, y=28),
-    "alfa": _MONO.format(bg="#ef3124", fg="#fff", txt="A", fs=21, y=28),
-    "яндекс": _MONO.format(bg="#fff", fg="#fc3f1d", txt="Я", fs=21, y=28),
-    "yandex": _MONO.format(bg="#fff", fg="#fc3f1d", txt="Я", fs=21, y=28),
-    "ozon": _MONO.format(bg="#005bff", fg="#fff", txt="O", fs=21, y=28),
-    "озон": _MONO.format(bg="#005bff", fg="#fff", txt="O", fs=21, y=28),
-    "vk": _MONO.format(bg="#0077ff", fg="#fff", txt="VK", fs=15, y=26),
-    "втб": _MONO.format(bg="#002882", fg="#fff", txt="втб", fs=13, y=25),
-    "vtb": _MONO.format(bg="#002882", fg="#fff", txt="втб", fs=13, y=25),
-    "мтс": _MONO.format(bg="#e30611", fg="#fff", txt="МТС", fs=12, y=25),
-    "mts": _MONO.format(bg="#e30611", fg="#fff", txt="МТС", fs=12, y=25),
-}
-
-
-# Resume responsibilities arrive as an HTML blob: lines split on <br>/<p>,
-# a leading dash/bullet marks a list item, a colon-terminated plain line a
-# subheading. These strip the markup back to clean, structured text.
-_RESP_SPLIT: Final = re.compile(r"<br\s*/?>|</?p\s*/?>", re.IGNORECASE)
-_RESP_TAG: Final = re.compile(r"<[^>]+>")
-_RESP_BULLET: Final = re.compile(r"^[-–•·*]+")
-
-
-class LifeInterval(NamedTuple):
-    """A dated slice of life on the calendar axis (months since year 0)."""
-
-    start: int
-    end: int
-    kind: Literal["education", "course", "job", "gap"]
-    label: str
-    status: Status
-    hint: str
-    role: str = ""
-    responsibilities: str = ""
 
 
 @final
 class DashboardBuilderService(BaseService):
     """Project a structured analysis into the presentation model."""
+
+    RESP_SPLIT: Final = re.compile(r"<br\s*/?>|</?p\s*/?>", re.IGNORECASE)
+    RESP_TAG: Final = re.compile(r"<[^>]+>")
+    RESP_BULLET: Final = re.compile(r"^[-–•·*]+")
 
     @override
     async def execute(self, analysis: ResumeAnalysis) -> Dashboard:
@@ -183,7 +98,7 @@ class DashboardBuilderService(BaseService):
         ) = self.build_lifeline(analysis)
         return Dashboard(
             candidate=analysis.candidate,
-            hero=self.build_hero(analysis, featured, domain),
+            hero=self.build_hero(analysis, featured, domain, gap_months),
             highlights=self.build_highlights(analysis),
             featured_skills=featured,
             other_skills=other,
@@ -214,18 +129,28 @@ class DashboardBuilderService(BaseService):
             for item in analysis.experiences
         }
 
+    @staticmethod
+    def _relevant_months(analysis: ResumeAnalysis) -> int:
+        """Total tenure weighted by each job's relevance to the target role."""
+        return round(
+            sum(
+                (item.duration_months or 0) * RELEVANCE_WEIGHTS[item.relevance]
+                for item in analysis.experiences
+            )
+        )
+
     @classmethod
     def build_skills(
         cls, analysis: ResumeAnalysis
     ) -> tuple[list[DashboardSkill], list[DashboardSkill]]:
-        """Split skills into fixed priority cubes and the enumerated rest."""
+        """Split scored skills into model-flagged role-core and the rest."""
         tenure = cls._tenure(analysis)
-        featured, used_ids = cls._priority_cubes(analysis.skills, tenure)
-        other = [
-            cls._score_skill(item, tenure)
-            for item in analysis.skills
-            if item.id not in used_ids
-        ]
+        featured: list[DashboardSkill] = []
+        other: list[DashboardSkill] = []
+        for item in analysis.skills:
+            bucket = featured if item.core else other
+            bucket.append(cls._score_skill(item, tenure))
+        featured.sort(key=lambda skill: (-skill.score, skill.name))
         other.sort(key=lambda skill: (-skill.score, skill.name))
         return featured, other
 
@@ -244,57 +169,16 @@ class DashboardBuilderService(BaseService):
     def _score_skill(
         item: SkillAssessment, tenure: dict[str, int]
     ) -> DashboardSkill:
-        """Score one skill's radar from its mentions, tenure and depth."""
+        """Score one skill from its mentions, tenure and depth."""
         depth = depth_level(item.estimated_depth)
         mentions = len(item.contexts) or len(item.experience_ids)
         months = sum(tenure.get(eid, 0) for eid in item.experience_ids)
-        axes = skill_axes(mentions, months, depth)
-        score = skill_score(axes)
+        score = skill_score(mentions, months, depth)
         return DashboardSkill(
             name=item.name,
             group=item.group,
             score=score,
             status=skill_status(score),
-            axes=axes,
-            radar_points=radar_points(axes),
-        )
-
-    @classmethod
-    def _priority_cubes(
-        cls, skills: list[SkillAssessment], tenure: dict[str, int]
-    ) -> tuple[list[DashboardSkill], set[str]]:
-        """Draw one cube per must-have skill; empty when it is absent."""
-        featured: list[DashboardSkill] = []
-        used: set[str] = set()
-        for label, aliases in PRIORITY_SKILLS:
-            match = next(
-                (
-                    item
-                    for item in skills
-                    if item.id not in used
-                    and skill_matches(item.name, aliases)
-                ),
-                None,
-            )
-            if match is not None:
-                used.add(match.id)
-                scored = cls._score_skill(match, tenure)
-                featured.append(scored.model_copy(update={"name": label}))
-            else:
-                featured.append(cls._empty_cube(label))
-        return featured, used
-
-    @staticmethod
-    def _empty_cube(label: str) -> DashboardSkill:
-        """Build a placeholder cube for a missing must-have skill."""
-        axes = skill_axes(0, 0, 0)
-        return DashboardSkill(
-            name=label,
-            group="Приоритетный навык",
-            score=0,
-            status="unknown",
-            axes=axes,
-            radar_points=radar_points(axes),
         )
 
     @classmethod
@@ -346,14 +230,18 @@ class DashboardBuilderService(BaseService):
         analysis: ResumeAnalysis,
         featured: list[DashboardSkill],
         domain: DashboardDomain,
+        gap_months: list[int],
     ) -> DashboardHero:
         """Build the headline block with the overall candidate rating."""
         summary = analysis.summary
         score = overall_score(
             skill_scores=[skill.score for skill in featured],
             level=summary.estimated_level,
-            total_months=analysis.experience_summary.total_months,
-            domain_present=domain.status == "positive",
+            role_fit=summary.role_fit,
+            relevant_months=cls._relevant_months(analysis),
+            domain_present=domain.status == Status.POSITIVE,
+            job_tenures=list(cls._tenure(analysis).values()),
+            gap_months=gap_months,
         )
         candidate = analysis.candidate
         return DashboardHero(
@@ -407,13 +295,13 @@ class DashboardBuilderService(BaseService):
 
         def pos(month: int) -> float:
             months_ago = max(now - month, 0)
-            if months_ago <= _LINEAR_MONTHS:
-                return _MONTH_STEP * months_ago
-            tail = months_ago - _LINEAR_MONTHS
+            if months_ago <= LINEAR_MONTHS:
+                return MONTH_STEP * months_ago
+            tail = months_ago - LINEAR_MONTHS
             compressed = (
-                _MONTH_STEP * _COMPRESS_RELAX * tail / (tail + _COMPRESS_RELAX)
+                MONTH_STEP * COMPRESS_RELAX * tail / (tail + COMPRESS_RELAX)
             )
-            return _MONTH_STEP * _LINEAR_MONTHS + compressed
+            return MONTH_STEP * LINEAR_MONTHS + compressed
 
         work_blocks, work_bottom = cls._place_column(work, now, pos)
         side_blocks, side_bottom = cls._place_column(study + gaps, now, pos)
@@ -424,7 +312,7 @@ class DashboardBuilderService(BaseService):
         height = (
             int(
                 max(
-                    _AXIS_MIN_HEIGHT,
+                    AXIS_MIN_HEIGHT,
                     work_bottom,
                     side_bottom,
                     deepest_tick + 14,
@@ -447,9 +335,9 @@ class DashboardBuilderService(BaseService):
         for item in sorted(intervals, key=lambda entry: -entry.end):
             axis_top = pos(item.end)
             axis_bottom = pos(item.start)
-            height = max(axis_bottom - axis_top, _MIN_HEIGHTS[item.kind])
+            height = max(axis_bottom - axis_top, MIN_HEIGHTS[item.kind])
             top = max(axis_top, cursor)
-            cursor = top + height + _CARD_GAP
+            cursor = top + height + CARD_GAP
             blocks.append(
                 DashboardTimelineBlock(
                     title=item.label,
@@ -473,15 +361,17 @@ class DashboardBuilderService(BaseService):
             )
         return blocks, cursor
 
-    @staticmethod
-    def _responsibility_details(raw: str) -> list[DashboardDetail]:
+    @classmethod
+    def _responsibility_details(cls, raw: str) -> list[DashboardDetail]:
         """Clean the resume responsibilities HTML into bullet/heading lines."""
         details: list[DashboardDetail] = []
-        for chunk in _RESP_SPLIT.split(raw or ""):
-            text = html.unescape(_RESP_TAG.sub("", chunk)).replace("\t", " ")
+        for chunk in cls.RESP_SPLIT.split(raw or ""):
+            text = html.unescape(cls.RESP_TAG.sub("", chunk)).replace(
+                "\t", " "
+            )
             text = text.strip()
-            bullet = bool(_RESP_BULLET.match(text))
-            text = " ".join(_RESP_BULLET.sub("", text).split())
+            bullet = bool(cls.RESP_BULLET.match(text))
+            text = " ".join(cls.RESP_BULLET.sub("", text).split())
             if not text:
                 continue
             head = not bullet and text.endswith(":")
@@ -501,7 +391,7 @@ class DashboardBuilderService(BaseService):
         if item.kind != "job":
             return ""
         name = item.label.casefold()
-        for keyword, svg in _COMPANY_LOGOS.items():
+        for keyword, svg in COMPANY_LOGOS.items():
             if keyword in name:
                 return svg
         return ""
@@ -549,7 +439,7 @@ class DashboardBuilderService(BaseService):
                     end=finish,
                     kind="gap",
                     label="Перерыв в карьере",
-                    status="negative",
+                    status=Status.NEGATIVE,
                     hint=cls._compact_months(gap.duration_months),
                 )
             )
@@ -561,7 +451,7 @@ class DashboardBuilderService(BaseService):
                     end=now,
                     kind="gap",
                     label="Перерыв в карьере",
-                    status="negative",
+                    status=Status.NEGATIVE,
                     hint=cls._compact_months(trailing),
                 )
             )
@@ -588,10 +478,10 @@ class DashboardBuilderService(BaseService):
             position = round(pos(year * 12), 1)
             if year == oldest:
                 while len(years) > 1 and position - years[-1].position < (
-                    _YEAR_LABEL_GAP
+                    YEAR_LABEL_GAP
                 ):
                     years.pop()
-            elif position - years[-1].position < _YEAR_LABEL_GAP:
+            elif position - years[-1].position < YEAR_LABEL_GAP:
                 continue
             years.append(
                 DashboardTimelineYear(
@@ -641,7 +531,7 @@ class DashboardBuilderService(BaseService):
                     end=anchor,
                     kind="course",
                     label=item.institution or item.speciality or "Курс",
-                    status="positive",
+                    status=Status.POSITIVE,
                     hint=item.speciality or "Курс",
                 )
             )
@@ -661,7 +551,7 @@ class DashboardBuilderService(BaseService):
             if begin is None or finish is None or finish <= begin:
                 continue
             months = job.duration_months or (finish - begin)
-            sector = sectors.get(job.id, "unknown")
+            sector = sectors.get(job.id, Sector.UNKNOWN)
             intervals.append(
                 LifeInterval(
                     start=begin,
@@ -669,7 +559,7 @@ class DashboardBuilderService(BaseService):
                     kind="job",
                     label=job.company,
                     status=tenure_status(months),
-                    hint=SECTOR_LABELS.get(sector, SECTOR_LABELS["unknown"]),
+                    hint=SECTOR_LABELS[sector],
                     role=(job.role or "").strip(),
                     responsibilities=(job.responsibilities or "").strip(),
                 )
@@ -694,18 +584,21 @@ class DashboardBuilderService(BaseService):
 
     @classmethod
     def build_domain(cls, analysis: ResumeAnalysis) -> DashboardDomain:
-        """Sum time spent in bonus domains (banking/fintech)."""
+        """Sum time spent in role-relevant bonus domains (banking/fintech)."""
         tenure = cls._tenure(analysis)
+        relevance = {item.id: item.relevance for item in analysis.experiences}
         months = sum(
             tenure.get(company.experience_id, 0)
             for company in analysis.company_assessments
             if cls._is_priority_domain(company)
+            and relevance.get(company.experience_id)
+            is not RoleRelevance.UNRELATED
         )
         present = months > 0
         return DashboardDomain(
             label=PRIORITY_DOMAIN_LABEL,
             value=duration_label(months) if present else "Не найден",
-            status="positive" if present else "neutral",
+            status=Status.POSITIVE if present else Status.NEUTRAL,
         )
 
     @staticmethod

@@ -1,11 +1,24 @@
-from typing import Literal, final
+from typing import Literal, NamedTuple, final
 
+from services.analyzer.analysis.choices import Status
 from services.analyzer.analysis.schemas import (
     Candidate,
-    Status,
     Unknown,
 )
 from services.api.common.schemas import CamelCaseModel
+
+
+class LifeInterval(NamedTuple):
+    """Internal builder span (months since year 0), before positioning."""
+
+    start: int
+    end: int
+    kind: Literal["education", "course", "job", "gap"]
+    label: str
+    status: Status
+    hint: str
+    role: str = ""
+    responsibilities: str = ""
 
 
 @final
@@ -28,15 +41,6 @@ class DashboardHero(CamelCaseModel):
 
 
 @final
-class SkillAxis(CamelCaseModel):
-    """One axis of a skill radar: an absolute 0-5 level and its 0-100 value."""
-
-    short: str
-    level: int
-    value: int
-
-
-@final
 class DashboardSkill(CamelCaseModel):
     """A skill scored for the skills grid."""
 
@@ -44,8 +48,6 @@ class DashboardSkill(CamelCaseModel):
     group: str
     score: int
     status: Status
-    axes: list[SkillAxis]
-    radar_points: str
 
 
 @final

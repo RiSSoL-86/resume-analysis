@@ -20,18 +20,16 @@ SYSTEM_PROMPT: Final[str] = read_asset(
     PROMPTS_DIR / "analyze_resume.system.md"
 )
 UNIVERSAL_RULES: Final[str] = read_asset(RULES_DIR / "universal.yaml")
-SPECIALIZATION_RULES: Final[str] = read_asset(
-    RULES_DIR / "system_analyst.yaml"
+# Role-relevance rules: profession-agnostic guidance for judging skills
+# relative to the candidate's inferred target role (no per-role config).
+ROLE_RELEVANCE_RULES: Final[str] = read_asset(
+    RULES_DIR / "role_relevance.yaml"
 )
 # Expert knowledge documents, in the order the model should read them.
 KNOWLEDGE_DOCUMENTS: Final[tuple[tuple[str, str], ...]] = (
     ("company_signals", read_asset(KNOWLEDGE_DIR / "company_signals.yaml")),
     ("career_signals", read_asset(KNOWLEDGE_DIR / "career_signals.yaml")),
     ("level_thresholds", read_asset(KNOWLEDGE_DIR / "level_thresholds.yaml")),
-    (
-        "specialization_requirements",
-        read_asset(KNOWLEDGE_DIR / "specialization_requirements.yaml"),
-    ),
 )
 
 
@@ -47,7 +45,7 @@ def build_user_input(
     dossier_json = json.dumps(dossier, ensure_ascii=False, indent=2)
     sections = [
         "# Универсальные HR-правила\n" + UNIVERSAL_RULES,
-        "# Правила специализации\n" + SPECIALIZATION_RULES,
+        "# Правила оценки относительно роли\n" + ROLE_RELEVANCE_RULES,
         *(
             f"# Экспертная база: {name}\n{content}"
             for name, content in KNOWLEDGE_DOCUMENTS
