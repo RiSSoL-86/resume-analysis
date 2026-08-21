@@ -1,8 +1,8 @@
-import math
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from services.analyzer.analysis.choices import Severity, Status
 from services.analyzer.dashboard.constants import (
     CURRENCY_SYMBOLS,
     DEPTH_LEVELS,
@@ -20,12 +20,13 @@ from services.analyzer.dashboard.constants import (
     OVERALL_DOMAIN_BONUS,
     OVERALL_EXPERIENCE_FULL_MONTHS,
     OVERALL_EXPERIENCE_WEIGHT,
+    OVERALL_GAP_PENALTY_FULL_MONTHS,
+    OVERALL_GAP_PENALTY_MAX,
     OVERALL_LEVEL_WEIGHT,
     OVERALL_POSITIVE,
+    OVERALL_ROLE_FIT_WEIGHT,
     OVERALL_SKILL_WEIGHT,
-    RADAR_AXES,
-    RADAR_CENTER,
-    RADAR_RADIUS,
+    OVERALL_STABILITY_FLOOR,
     RESUME_FRESH_MONTHS,
     RESUME_STALE_MONTHS,
     SEVERITY_STATUS,
@@ -34,15 +35,10 @@ from services.analyzer.dashboard.constants import (
     SKILL_SCORE_STRONG,
     TENURE_LEVEL_BANDS,
 )
-from services.analyzer.dashboard.schemas import SkillAxis
 
 if TYPE_CHECKING:
-    from services.analyzer.analysis.schemas import (
-        EstimatedDepth,
-        Risk,
-        Status,
-        Unknown,
-    )
+    from services.analyzer.analysis.choices import EstimatedDepth
+    from services.analyzer.analysis.schemas import Risk, Unknown
 
 # Two Russian word forms are treated as the same topic when they share this
 # many leading characters — a cheap stemmer that folds "причина"/"причины".
@@ -159,12 +155,12 @@ def updated_status(value: str | None) -> Status:
     """Freshness colour: under a month green, 1-3 yellow, older red."""
     months = _months_since(value)
     if months is None:
-        return "unknown"
+        return Status.UNKNOWN
     if months < RESUME_FRESH_MONTHS:
-        return "positive"
+        return Status.POSITIVE
     if months < RESUME_STALE_MONTHS:
-        return "attention"
-    return "negative"
+        return Status.ATTENTION
+    return Status.NEGATIVE
 
 
 def duration_label(months: int | float | None) -> str:
@@ -196,83 +192,111 @@ def level_percent(level: str) -> float:
     return LEVEL_RANKS.index(level) / (len(LEVEL_RANKS) - 1) * 100
 
 
+def _stability_ratio(job_tenures: list[int]) -> float:
+    """Share of tenure spent in stable (1y+) jobs; 1.0 when there are none."""
+    total = sum(job_tenures)
+    if total <= 0:
+        return 1.0
+    stable = sum(t for t in job_tenures if t >= JOB_FULL_YEAR_MONTHS)
+    return stable / total
+
+
+def _gap_penalty(gap_months: list[int]) -> float:
+    """Points to subtract for significant employment gaps (saturating)."""
+    total = sum(gap_months)
+    if total <= 0:
+        return 0.0
+    ratio = min(total / OVERALL_GAP_PENALTY_FULL_MONTHS, 1.0)
+    return ratio * OVERALL_GAP_PENALTY_MAX
+
+
 def overall_score(
     skill_scores: list[int],
     level: str,
-    total_months: int | None,
+    role_fit: int,
+    relevant_months: int,
     domain_present: bool,
+    job_tenures: list[int],
+    gap_months: list[int],
 ) -> int:
-    """Blend must-have skills, seniority and tenure into a 0-100 rating."""
+    """Blend core skills, model role-fit, seniority and relevant tenure, then
+    discount career instability and gaps, into a 0-100 rating."""
     skills_pct = (
         sum(skill_scores) / (len(skill_scores) * SKILL_MAX_LEVEL) * 100
         if skill_scores
         else 0.0
     )
     experience_pct = (
-        min((total_months or 0) / OVERALL_EXPERIENCE_FULL_MONTHS, 1.0) * 100
+        min(relevant_months / OVERALL_EXPERIENCE_FULL_MONTHS, 1.0) * 100
     )
-    score = (
+    base = (
         OVERALL_SKILL_WEIGHT * skills_pct
+        + OVERALL_ROLE_FIT_WEIGHT * float(role_fit)
         + OVERALL_LEVEL_WEIGHT * level_percent(level)
         + OVERALL_EXPERIENCE_WEIGHT * experience_pct
     )
+    stability = OVERALL_STABILITY_FLOOR + (
+        1 - OVERALL_STABILITY_FLOOR
+    ) * _stability_ratio(job_tenures)
+    score = base * stability
     if domain_present:
         score += OVERALL_DOMAIN_BONUS
+    score -= _gap_penalty(gap_months)
     return max(0, min(100, round(score)))
 
 
 def overall_status(score: int) -> Status:
     """Traffic-light colour for the overall candidate score."""
     if score >= OVERALL_POSITIVE:
-        return "positive"
+        return Status.POSITIVE
     if score >= OVERALL_ATTENTION:
-        return "attention"
-    return "negative"
+        return Status.ATTENTION
+    return Status.NEGATIVE
 
 
 def experience_status(total_months: int | None) -> Status:
     """Traffic-light colour for total experience: 5+ green, 3-5 yellow, red."""
     months = total_months or 0
     if months >= EXPERIENCE_STRONG_MONTHS:
-        return "positive"
+        return Status.POSITIVE
     if months >= EXPERIENCE_ATTENTION_MONTHS:
-        return "attention"
-    return "negative"
+        return Status.ATTENTION
+    return Status.NEGATIVE
 
 
 def level_status(level: str) -> Status:
     """Traffic-light colour for seniority: middle+ green, middle yellow."""
     if level not in LEVEL_RANKS:
-        return "unknown"
+        return Status.UNKNOWN
     rank = LEVEL_RANKS.index(level)
     if rank >= LEVEL_RANKS.index(LEVEL_STRONG_RANK):
-        return "positive"
+        return Status.POSITIVE
     if rank >= LEVEL_RANKS.index(LEVEL_ATTENTION_RANK):
-        return "attention"
-    return "negative"
+        return Status.ATTENTION
+    return Status.NEGATIVE
 
 
 def skill_status(score: int) -> Status:
-    """Traffic-light colour for a skill, consistent with its radar area."""
+    """Traffic-light colour for a skill by its 0-5 score."""
     if score >= SKILL_SCORE_STRONG:
-        return "positive"
+        return Status.POSITIVE
     if score >= SKILL_SCORE_ATTENTION:
-        return "attention"
-    return "negative"
+        return Status.ATTENTION
+    return Status.NEGATIVE
 
 
-def severity_status(severity: str) -> Status:
+def severity_status(severity: Severity) -> Status:
     """Traffic-light colour for a risk severity."""
-    return SEVERITY_STATUS.get(severity, "neutral")  # type: ignore[return-value]
+    return SEVERITY_STATUS.get(severity, Status.NEUTRAL)
 
 
 def education_item_status(technical: bool | None) -> Status:
     """Traffic-light colour for whether one education is technical."""
     if technical is True:
-        return "positive"
+        return Status.POSITIVE
     if technical is False:
-        return "attention"
-    return "unknown"
+        return Status.ATTENTION
+    return Status.UNKNOWN
 
 
 def band_level(value: int, bands: tuple[tuple[int, int], ...]) -> int:
@@ -288,88 +312,46 @@ def depth_level(depth: EstimatedDepth) -> int:
     return DEPTH_LEVELS.get(depth, 0)
 
 
-def skill_axes(
-    mentions: int, tenure_months: int, depth: int
-) -> list[SkillAxis]:
-    """Build the three 0-5 radar axes: mentions, tenure, depth."""
+def skill_score(mentions: int, tenure_months: int, depth: int) -> int:
+    """Overall 0-5 skill score: the rounded mean of mentions, tenure, depth."""
     levels = (
         band_level(mentions, MENTION_LEVEL_BANDS),
         band_level(tenure_months, TENURE_LEVEL_BANDS),
         depth,
     )
-    return [
-        SkillAxis(
-            short=short,
-            level=level,
-            value=round(level / SKILL_MAX_LEVEL * 100),
-        )
-        for short, level in zip(RADAR_AXES, levels, strict=True)
-    ]
-
-
-def skill_score(axes: list[SkillAxis]) -> int:
-    """Overall 0-5 skill score: the rounded mean of its three axis levels."""
-    if not axes:
-        return 0
-    return round(sum(axis.level for axis in axes) / len(axes))
-
-
-def skill_matches(name: str, aliases: tuple[str, ...]) -> bool:
-    """Tell whether a skill name matches one of a priority skill's aliases."""
-    normalized = " ".join(name.strip().lower().split())
-    for alias in aliases:
-        if alias == "sql" and "nosql" in normalized:
-            continue
-        if alias in normalized:
-            return True
-    return False
+    return round(sum(levels) / len(levels))
 
 
 def gap_status(months: int) -> Status:
     """Traffic-light colour for one employment gap by its length."""
     if months > GAP_CRITICAL_MONTHS:
-        return "negative"
+        return Status.NEGATIVE
     if months >= GAP_ATTENTION_MONTHS:
-        return "attention"
-    return "neutral"
+        return Status.ATTENTION
+    return Status.NEUTRAL
 
 
 def tenure_status(months: int) -> Status:
     """Career-ring colour for one job: a year or more green, shorter yellow."""
-    return "positive" if months >= JOB_FULL_YEAR_MONTHS else "attention"
+    return (
+        Status.POSITIVE if months >= JOB_FULL_YEAR_MONTHS else Status.ATTENTION
+    )
 
 
 def gaps_overall_status(gap_months: list[int]) -> Status:
     """Worst-case traffic-light colour across all employment gaps."""
     statuses = [gap_status(months) for months in gap_months]
-    if "negative" in statuses:
-        return "negative"
-    if "attention" in statuses:
-        return "attention"
-    return "positive"
+    if Status.NEGATIVE in statuses:
+        return Status.NEGATIVE
+    if Status.ATTENTION in statuses:
+        return Status.ATTENTION
+    return Status.POSITIVE
 
 
 def gaps_label(gap_months: list[int]) -> str:
-    """Short glance label summarising the candidate's employment gaps.
-
-    The tile is already titled "Перерывы", so the value carries only the
-    duration, never the word again.
-    """
+    """Short glance label for employment gaps: duration only, no title word."""
     if not gap_months:
         return "Без перерывов"
     if len(gap_months) == 1:
         return duration_label(gap_months[0])
     return f"{len(gap_months)}, всего {duration_label(sum(gap_months))}"
-
-
-def radar_points(axes: list[SkillAxis]) -> str:
-    """Project axis values onto an SVG polygon 'x,y x,y ...' string."""
-    points: list[str] = []
-    count = len(axes)
-    for index, axis in enumerate(axes):
-        angle = math.radians(-90 + index * (360 / count))
-        radius = max(0, min(100, axis.value)) / 100 * RADAR_RADIUS
-        x = RADAR_CENTER + radius * math.cos(angle)
-        y = RADAR_CENTER + radius * math.sin(angle)
-        points.append(f"{x:.1f},{y:.1f}")
-    return " ".join(points)

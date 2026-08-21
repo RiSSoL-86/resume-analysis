@@ -10,10 +10,6 @@ from services.analyzer.schemas import (
     CareerFacts,
 )
 
-# hh.ru currency ids for the flat resume.salary form; the nested
-# document.salary already carries a currency code, so this is only a fallback.
-CURRENCY_BY_ID: dict[int, str] = {1: "RUB", 2: "USD", 3: "EUR"}
-
 
 @final
 class CareerFactsService(BaseService):
@@ -23,6 +19,7 @@ class CareerFactsService(BaseService):
         "Copy these chronology values exactly; "
         "do not recalculate or replace them."
     )
+    CURRENCY_BY_ID: dict[int, str] = {1: "RUB", 2: "USD", 3: "EUR"}
 
     @override
     async def execute(self, dossier: dict[str, Any]) -> CareerFacts:
@@ -98,12 +95,13 @@ class CareerFactsService(BaseService):
         """Compute whole years from a ``{year, month, day}`` birthday."""
         if not isinstance(birthday, dict):
             return None
-        year, month, day = (
-            birthday.get("year"),
-            birthday.get("month") or 1,
-            birthday.get("day") or 1,
-        )
+        year = birthday.get("year")
         if not isinstance(year, int):
+            return None
+        try:
+            month = int(birthday.get("month") or 1)
+            day = int(birthday.get("day") or 1)
+        except TypeError, ValueError:
             return None
         had_birthday = (today.month, today.day) >= (month, day)
         age = today.year - year - (0 if had_birthday else 1)
@@ -141,7 +139,7 @@ class CareerFactsService(BaseService):
         if value is not None:
             currency_id = resume.get("currencyId")
             currency = (
-                CURRENCY_BY_ID.get(currency_id, "")
+                cls.CURRENCY_BY_ID.get(currency_id, "")
                 if isinstance(currency_id, int)
                 else ""
             )
@@ -167,7 +165,9 @@ class CareerFactsService(BaseService):
     ) -> CareerFactExperience:
         """Turn one work-experience row into a computed experience."""
         start = row["fromDateObject"]
-        end = row.get("toDateObject") or current_month
+        raw_end = row.get("toDateObject")
+        end_obj = raw_end if isinstance(raw_end, dict) and raw_end else None
+        end = end_obj or current_month
         duration = max(0, month_index(end) - month_index(start))
         source_id = row.get("id")
         return CareerFactExperience(
@@ -176,7 +176,7 @@ class CareerFactsService(BaseService):
             role=row.get("position"),
             start_date=month_date(start),
             end_date=month_date(end),
-            is_current=row.get("toDateObject") is None,
+            is_current=end_obj is None,
             duration_months=duration,
             is_shorter_than_12_months=duration < 12,
             transition_reason=(

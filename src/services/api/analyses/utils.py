@@ -54,7 +54,11 @@ async def render_html(
     )
     if download_name:
         encoded = quote(f"{download_name}.html")
+        ascii_name = (
+            download_name.encode("ascii", "ignore").decode("ascii").strip()
+        )
+        fallback = f"{ascii_name}.html" if ascii_name else "report.html"
         response["Content-Disposition"] = (
-            f"attachment; filename=\"report.html\"; filename*=UTF-8''{encoded}"
+            f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
         )
     return response

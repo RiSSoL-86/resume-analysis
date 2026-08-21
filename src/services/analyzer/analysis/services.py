@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, final, override
 from uuid import UUID
 
 from apps.common.services.base import BaseService
+from services.analyzer.analysis.choices import MetadataStatus
 from services.analyzer.analysis.open_ai.services import (
     AnalyzerOpenAiService,
 )
@@ -40,7 +41,7 @@ class ResumeAnalysisService(BaseService):
         """Overwrite model-owned metadata with application-owned values."""
         metadata = analysis.analysis
         metadata.id = str(analysis_id)
-        metadata.status = "completed"
+        metadata.status = MetadataStatus.COMPLETED
         metadata.created_at = datetime.now(UTC).isoformat()
         metadata.model = self.open_ai_service.model
 
